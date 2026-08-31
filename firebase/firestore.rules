@@ -1,0 +1,61 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasRequiredClaims() {
+      return isAuthenticated()
+        && request.auth.token.organizationId is string
+        && request.auth.token.userId is string;
+    }
+
+    function orgClaim() {
+      return request.auth.token.organizationId;
+    }
+
+    function userClaim() {
+      return request.auth.token.userId;
+    }
+
+    function isOrgMember(orgId) {
+      return hasRequiredClaims() && orgClaim() == orgId;
+    }
+
+    function roomDoc(orgId, roomId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)/rooms/$(roomId));
+    }
+
+    function isRoomMember(orgId, roomId) {
+      return isOrgMember(orgId)
+        && userClaim() in roomDoc(orgId, roomId).data.memberIds;
+    }
+
+    match /organizations/{orgId} {
+      allow read: if isOrgMember(orgId);
+      allow write: if false;
+
+      match /users/{userId} {
+        allow read: if isOrgMember(orgId);
+        allow write: if false;
+      }
+
+      match /rooms/{roomId} {
+        allow read: if isRoomMember(orgId, roomId);
+        allow write: if false;
+
+        match /messages/{messageId} {
+          allow read: if isRoomMember(orgId, roomId);
+          allow write: if false;
+        }
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
